@@ -125,6 +125,7 @@ struct options {
 	int jobListLen;
 	int maxLength;
 	SchedulerPolicy policy;
+	const char* policyString;
 	int quantum;
 	int compute;
 };
@@ -156,6 +157,7 @@ void parseArguments(Options* opts, int argc, char** argv) {
 	opts->maxLength = 10; // Max job length for random gen
 	opts->jobList = NULL; // Job list overrides jobs, maxLength,
 	opts-> policy = FIFO; // Default policy
+	opts->policyString = toString(FIFO); // default policy
 	opts->quantum = 1; // Default quantum
 	opts->compute = 0; // Default to false
 
@@ -168,7 +170,9 @@ void parseArguments(Options* opts, int argc, char** argv) {
 		} else if (!strcmpi(arg, "-m") || !strcmpi(arg, "--maxlen")) {
 			opts->maxLength = atoi(argv[++i]);
 		} else if (!strcmpi(arg, "-p") || !strcmpi(arg, "--policy")) {
-			opts->policy = policyFromString(argv[++i]);
+			const char* policy = argv[++i];
+			opts->policyString = policy;
+			opts->policy = policyFromString(policy);
 		} else if (!strcmpi(arg, "-q") || !strcmpi(arg, "--quantum")) {
 			opts->quantum = atoi(argv[++i]);
 		} else if (!strcmpi(arg, "-c")) {
@@ -208,9 +212,8 @@ void parseArguments(Options* opts, int argc, char** argv) {
 
 // END Options
 
-void compute(const Options* opts);
+void compute(Job** readyQueue, const Options* opts);
 void createJobs(Job** readyQueue, const Options* opts);
-
 
 int main(int argc, char** argv) {
 
@@ -223,7 +226,7 @@ int main(int argc, char** argv) {
 	createJobs(&readyQueue, &opts);
 
 	if (opts.compute) {
-		compute(&opts);
+		compute(&readyQueue, &opts);
 	} else {
 		printf("Compute the turnaround time, response time, and wait time for each job.\n");
 		printf("When you are done, run this program again, with the same arguments,\n");
@@ -263,5 +266,24 @@ void createJobs(Job** readyQueue, const Options* opts) {
 	printf("\n\n");
 }
 
-void compute(const Options* opts) {}
+void computeFIFO(Job** readyQueue, const Options* opts) {
+
+}
+
+void computeRR(Job** readyQueue, const Options* opts) {}
+
+void compute(Job** readyQueue, const Options* opts) {
+	switch (opts->policy) {
+		case SJF:
+		case FIFO:
+			// This works because it's already sorted when inserted with a SJF policy and not when in FIFO.
+			computeFIFO(readyQueue, opts);
+			break;
+		case RR:
+			computeRR(readyQueue, opts);
+			break;
+		default:
+			fprintf(stderr, "Error: Policy %s is not available.\n", opts->policyString);
+	}
+}
 
