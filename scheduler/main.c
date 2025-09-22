@@ -45,11 +45,80 @@ struct job {
 };
 typedef struct job Job;
 
+void insert_back(Job** head, Job* element) {
+	element->next = NULL;
+
+	if (*head == NULL) {
+		*head = element;
+		return;
+	}
+
+	Job* p = *head;
+	while (p->next) {
+		p = p->next;
+	}
+
+	p->next = element;
+}
+
+void insert_sorted(Job** head, Job* element) {
+	element->next = NULL; // initialize even tho I mgiht overwrite
+	// If no head only one element
+	if (*head == NULL) {
+		*head = element;
+		return;
+	}
+
+	// If smaller than head, insert and become new head
+	if (element->runtime < (*head)->runtime) {
+		element->next = *head;
+		*head = element;
+		return;
+	}
+
+	// Walk until finding a job w/ a larger runtime. If it doesn't find one it appends to end of the list
+	Job* prev = *head;
+	for (Job* p = (*head)->next; p; p = p->next) {
+		if (element->runtime < p->runtime) {
+			element->next = p;
+			prev->next = element;
+			return;
+		}
+		prev = p;
+	}
+
+	prev->next = element;
+}
+
+// Inserts into the linked list based on the policy
+void insert(Job** head, Job* element, SchedulerPolicy policy) {
+	switch (policy) {
+		case FIFO:
+		case RR:
+		default:
+			insert_back(head, element);
+			break;
+		case SJF:
+			insert_sorted(head, element);
+			break;
+	}
+}
+
+// Always pop's from the head of the linked list. Will be sorted by policy based on the
+Job* pop(Job** head) {
+	if (head == NULL || *head == NULL) {
+		return NULL;
+	}
+	Job* popped = *head;
+	*head = (*head)->next;
+	return popped;
+}
+
 // END Job
 
 
-// BEGIN Arguments / Options
-struct arguments {
+// BEGIN Options
+struct options {
 	int seed;
 	int jobs;
 	const int* jobList;
@@ -60,7 +129,7 @@ struct arguments {
 	int compute;
 };
 
-typedef struct arguments Options;
+typedef struct options Options;
 
 void printArguments(Options* opts) {
 	printf("ARG policy %s\n", toString(opts->policy));
@@ -76,8 +145,9 @@ void printArguments(Options* opts) {
 				printf(",");
 			}
 		}
-		printf("\n\n");
+		printf("\n");
 	}
+	printf("\n");
 }
 void parseArguments(Options* opts, int argc, char** argv) {
 
@@ -87,6 +157,7 @@ void parseArguments(Options* opts, int argc, char** argv) {
 	opts->jobList = NULL; // Job list overrides jobs, maxLength,
 	opts-> policy = FIFO; // Default policy
 	opts->quantum = 1; // Default quantum
+	opts->compute = 0; // Default to false
 
 	for (int i = 0; i < argc; i++) {
 		const char* arg = argv[i];
@@ -135,7 +206,10 @@ void parseArguments(Options* opts, int argc, char** argv) {
 	}
 }
 
-// END Arguments / Options
+// END Options
+
+void compute(const Options* opts);
+void createJobs(Job** readyQueue, const Options* opts);
 
 
 int main(int argc, char** argv) {
@@ -144,8 +218,50 @@ int main(int argc, char** argv) {
 	parseArguments(&opts, argc, argv);
 	printArguments(&opts);
 
+	Job* readyQueue = NULL;
+
+	createJobs(&readyQueue, &opts);
+
+	if (opts.compute) {
+		compute(&opts);
+	} else {
+		printf("Compute the turnaround time, response time, and wait time for each job.\n");
+		printf("When you are done, run this program again, with the same arguments,\n");
+		printf("but with -c, which will thus provide you with the answers. You can use\n");
+		printf("-s <somenumber> or your own job list (-l 10,15,20 for example)\n");
+		printf("to generate different problems for yourself.\n\n");
+	}
+
 	return 0;
 }
 
+// Creates jobs and adds them to the ready queue. Also prints them.
+void createJobs(Job** readyQueue, const Options* opts) {
+	srand(opts->seed);
+	if (opts->jobList == NULL) {
+		// Generate random jobs
+		for (int i = 0; i < opts->jobs; i++) {
+			Job* job = malloc(sizeof(Job));
+			job->id = i;
+			job->runtime = rand() % opts->maxLength + 1;
+			insert(readyQueue, job, opts->policy);
+		}
+	} else {
+		for (int i = 0; i < opts->jobListLen; i++) {
+			Job* job = malloc(sizeof(Job));
+			job->id = i;
+			job->runtime = opts->jobList[i];
+			insert(readyQueue, job, opts->policy);
+		}
+	}
 
+	printf("Here is the job list, with the run time of each job:\n");
+	// Separated printing here to reduce repetition of code. Just has to iterate over list once more.
+	for (Job* p = *readyQueue; p; p = p->next) {
+		printf("  Job %d ( length = %d )\n", p->id, p->runtime);
+	}
+	printf("\n\n");
+}
+
+void compute(const Options* opts) {}
 
