@@ -96,11 +96,13 @@ void insert(Job** head, Job* element, SchedulerPolicy policy) {
 	switch (policy) {
 		case FIFO:
 		case RR:
-		default:
 			insert_back(head, element);
 			break;
 		case SJF:
 			insert_sorted(head, element);
+			break;
+		default:
+			insert_back(head, element);
 			break;
 	}
 }
@@ -134,7 +136,6 @@ void clone(Job** dest, const Job** src) {
 
 // END Job
 
-
 // BEGIN Options
 struct options {
 	int seed;
@@ -146,10 +147,24 @@ struct options {
 	const char* policyString;
 	int quantum;
 	int compute;
+	int help;
 };
 
 typedef struct options Options;
 
+void printHelp() {
+	printf("Usage: scheduler.py [options]\n\n");
+	printf("Options:\n");
+	printf("  %-22s%s\n", "-h, --help", "show this help message and exit");
+	printf("  %-22s%s\n", "-s SEED, --seed=SEED", "the random seed");
+	printf("  %-22s%s\n", "-j JOBS, --jobs=JOBS", "number of jobs in the system");
+	printf("  %s\n%-24s%s\n%-24s%s\n" , "-l JLIST, --jlist=JLIST", "", "instead of random jobs, provide a comma-separated list", "", "of run times");
+	printf("  %s\n%-24s%s\n", "-m MAXLEN, --maxlen=MAXLEN", "", "max length of job");
+	printf("  %s\n%-24s%s\n", "-p POLICY, --policy=POLICY", "", "sched policy to use: SJF, FIFO, RR");
+	printf("  %s\n%-24s%s\n", "-q QUANTUM, --quantum=QUANTUM", "", "length of time slice for RR policy");
+	printf("  %-22s%s\n", "-c", "compute answers for me");
+
+}
 void printArguments(Options* opts) {
 	printf("ARG policy %s\n", toString(opts->policy));
 	if (opts->jobList == NULL) {
@@ -170,6 +185,7 @@ void printArguments(Options* opts) {
 }
 void parseArguments(Options* opts, int argc, char** argv) {
 
+	opts->help = 0;
 	opts->seed = 0; // Default seed for random gen
 	opts->jobs = 3; // Number of jobs to generate for random gen
 	opts->maxLength = 10; // Max job length for random gen
@@ -181,7 +197,9 @@ void parseArguments(Options* opts, int argc, char** argv) {
 
 	for (int i = 0; i < argc; i++) {
 		const char* arg = argv[i];
-		if (!strcmpi(arg, "-s") || !strcmpi(arg, "--seed")) {
+		if (!strcmpi(arg, "-h") || !strcmpi(arg, "--help")) {
+			opts->help = 1;
+		} else if (!strcmpi(arg, "-s") || !strcmpi(arg, "--seed")) {
 			opts->seed =  atoi(argv[++i]);
 		} else if (!strcmpi(arg, "-j") || !strcmpi(arg, "--jobs")) {
 			opts->jobs = atoi(argv[++i]);
@@ -237,6 +255,12 @@ int main(int argc, char** argv) {
 
 	Options opts;
 	parseArguments(&opts, argc, argv);
+
+	if (opts.help) {
+		printHelp();
+		return 0;
+	}
+
 	printArguments(&opts);
 
 	Job* readyQueue = NULL;
@@ -265,21 +289,21 @@ void createJobs(Job** readyQueue, const Options* opts) {
 			Job* job = malloc(sizeof(Job));
 			job->id = i;
 			job->runtime = rand() % opts->maxLength + 1;
-			insert(readyQueue, job, opts->policy);
+			insert_back(readyQueue, job);
 		}
 	} else {
 		for (int i = 0; i < opts->jobListLen; i++) {
 			Job* job = malloc(sizeof(Job));
 			job->id = i;
 			job->runtime = opts->jobList[i];
-			insert(readyQueue, job, opts->policy);
+			insert_back(readyQueue, job);
 		}
 	}
 
-	printf("Here is the job list, with the run time of each job:\n");
+	printf("Here is the job list, with the run time of each job: \n");
 	// Separated printing here to reduce repetition of code. Just has to iterate over list once more.
 	for (Job* p = *readyQueue; p; p = p->next) {
-		printf("  Job %d ( length = %d )\n", p->id, p->runtime);
+		printf("  Job %d ( length = %.1f )\n", p->id, (float) p->runtime);
 	}
 	printf("\n\n");
 }
@@ -345,6 +369,8 @@ void computeRR(const Job** jobs, const Options* opts) {
 	Job* runList;
 	clone(&runList, jobs);
 
+	Job* tmp;
+
 	int theTime = 0;
 	while (jobCount > 0) {
 		Job* job = pop(&runList);
@@ -390,6 +416,13 @@ void compute(Job** readyQueue, const Options* opts) {
 	printf("** Solutions **\n\n");
 	switch (opts->policy) {
 		case SJF:
+			// Sort the queue and assign the readyQueue to the new one
+			Job* sorted = NULL;
+			Job* p;
+			while ((p = pop(readyQueue)) != NULL) {
+				insert_sorted(&sorted, p);
+			}
+			*readyQueue = sorted;
 		case FIFO:
 			// This works because it's already sorted when inserted with a SJF policy and not when in FIFO.
 			computeFIFO(readyQueue, opts);
