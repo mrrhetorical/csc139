@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 // BEGIN Scheduler Policy
 
@@ -267,12 +268,104 @@ void createJobs(Job** readyQueue, const Options* opts) {
 }
 
 void computeFIFO(Job** readyQueue, const Options* opts) {
+	int theTime = 0;
+	printf("Execution trace:\n");
+	for (const Job* job = *readyQueue; job; job = job->next) {
+		printf("  [ time %3d ] Run job %d for %.2f secs ( DONE at %.2f )\n", theTime, job->id, (float) job->runtime, (float) theTime + (float) job->runtime);
+		theTime += job->runtime;
+	}
+	printf("\nFinal statistics:\n");
+
+	float t = 0.0f;
+	int count = 0;
+	float turnaroundSum = 0.0f;
+	float waitSum = 0.0f;
+	float responseSum = 0.0f;
+	for (const Job* job = *readyQueue; job; job = job->next) {
+		const int jobId = job->id;
+		const float runtime = (float) job->runtime;
+		const float response = t;
+		const float turnaround = t + runtime;
+		const float wait = t;
+		printf("  Job %3d -- Response: %3.2f  Turnaround %3.2f  Wait %3.2f\n", jobId, response, turnaround, wait);
+		responseSum += response;
+		turnaroundSum += turnaround;
+		waitSum += wait;
+		t += runtime;
+		count++;
+	}
+	printf("\n  Average -- Response: %3.2f  Turnaround %3.2f  Wait %3.2f\n\n", responseSum / (float) count, turnaroundSum / (float) count, waitSum / (float) count);
+}
+
+struct JobStatus {
+	int id;
+	int turnaround;
+	int response;
+	int lastRan;
+	int wait;
+};
+typedef struct JobStatus JobStatus;
+
+void computeRR(Job** jobs, const Options* opts) {
+	printf("Execution trace:\n");
+	const int totalJobs = opts->jobList != NULL ? opts->jobListLen : opts->jobs;
+
+	JobStatus** statuses = malloc(sizeof(JobStatus*) * totalJobs);
+	int quantum = opts->quantum;
+	int jobCount = totalJobs;
+
+	for (int i = 0; i < totalJobs; i++) {
+		statuses[i] = malloc(sizeof(JobStatus));
+		JobStatus* status = statuses[i];
+		status->id = i;
+		status->lastRan = 0.0f;
+		status->wait = 0.0f;
+		status->turnaround = 0.0f;
+		status->response = -1;
+	}
+
+	// Copy the job list
+	Job* runList = malloc(sizeof(Job) * totalJobs);
+	memcpy(runList, *jobs, sizeof(Job) * totalJobs);
+
+	int theTime = 0;
+	while (jobCount > 0) {
+		Job* job = pop(&runList);
+		const int jobId = job->id;
+		JobStatus* status = statuses[jobId];
+		if (status->response == -1) {
+			status->response = theTime;
+		}
+		const int currentWait = theTime - status->lastRan;
+		status->wait += currentWait;
+		int ranFor;
+		if (job->runtime > quantum) {
+			job->runtime -= quantum;
+			ranFor = quantum;
+			printf("  [ time %3d ] Run job %3d for %.2f secs", theTime, jobId, (float) ranFor);
+		} else {
+			ranFor = job->runtime;
+			printf("  [ time %3d ] Run job %3d for %.2f secs ( DONE at %.2f )", theTime, jobId, (float) ranFor, (float) theTime + (float) ranFor);
+			status->turnaround = theTime + ranFor;
+			jobCount--;
+		}
+		theTime += ranFor;
+		status->lastRan = theTime;
+	}
+
+	printf("\nFinal statistics:");
+	float turnaroundSum = 0.0f;
+	float waitSum = 0.0f;
+	float responseSum = 0.0f;
+	for (const Job* job = *jobs; job; job = job->next) {
+		const JobStatus* status = statuses[job->id];
+
+	}
 
 }
 
-void computeRR(Job** readyQueue, const Options* opts) {}
-
 void compute(Job** readyQueue, const Options* opts) {
+	printf("** Solutions **\n\n");
 	switch (opts->policy) {
 		case SJF:
 		case FIFO:
