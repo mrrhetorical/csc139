@@ -112,7 +112,24 @@ Job* pop(Job** head) {
 	}
 	Job* popped = *head;
 	*head = (*head)->next;
+	popped->next = NULL;
 	return popped;
+}
+
+// Makes a (symbolic?) copy of the list
+void clone(Job** dest, const Job** src) {
+	*dest = NULL;
+	if (!src || !*src) {
+		return;
+	}
+
+	for (const Job* p = *src; p; p = p->next) {
+		Job* job = malloc(sizeof(Job));
+		job->id = p->id;
+		job->runtime = p->runtime;
+		job->next = NULL;
+		insert_back(dest, job);
+	}
 }
 
 // END Job
@@ -306,7 +323,7 @@ struct JobStatus {
 };
 typedef struct JobStatus JobStatus;
 
-void computeRR(Job** jobs, const Options* opts) {
+void computeRR(const Job** jobs, const Options* opts) {
 	printf("Execution trace:\n");
 	const int totalJobs = opts->jobList != NULL ? opts->jobListLen : opts->jobs;
 
@@ -325,8 +342,8 @@ void computeRR(Job** jobs, const Options* opts) {
 	}
 
 	// Copy the job list
-	Job* runList = malloc(sizeof(Job) * totalJobs);
-	memcpy(runList, *jobs, sizeof(Job) * totalJobs);
+	Job* runList;
+	clone(&runList, jobs);
 
 	int theTime = 0;
 	while (jobCount > 0) {
@@ -342,10 +359,11 @@ void computeRR(Job** jobs, const Options* opts) {
 		if (job->runtime > quantum) {
 			job->runtime -= quantum;
 			ranFor = quantum;
-			printf("  [ time %3d ] Run job %3d for %.2f secs", theTime, jobId, (float) ranFor);
+			insert(&runList, job, opts->policy);
+			printf("  [ time %3d ] Run job %3d for %.2f secs\n", theTime, jobId, (float) ranFor);
 		} else {
 			ranFor = job->runtime;
-			printf("  [ time %3d ] Run job %3d for %.2f secs ( DONE at %.2f )", theTime, jobId, (float) ranFor, (float) theTime + (float) ranFor);
+			printf("  [ time %3d ] Run job %3d for %.2f secs ( DONE at %.2f )\n", theTime, jobId, (float) ranFor, (float) theTime + (float) ranFor);
 			status->turnaround = theTime + ranFor;
 			jobCount--;
 		}
@@ -353,15 +371,19 @@ void computeRR(Job** jobs, const Options* opts) {
 		status->lastRan = theTime;
 	}
 
-	printf("\nFinal statistics:");
+	printf("\nFinal statistics:\n");
 	float turnaroundSum = 0.0f;
 	float waitSum = 0.0f;
 	float responseSum = 0.0f;
 	for (const Job* job = *jobs; job; job = job->next) {
 		const JobStatus* status = statuses[job->id];
-
+		turnaroundSum += (float) status->turnaround;
+		responseSum += (float) status->response;
+		waitSum += (float) status->wait;
+		printf("  Job %3d -- Response: %3.2f  Turnaround %3.2f  Wait %3.2f\n", job->id, (float) status->response, (float) status->turnaround, (float) status->wait);
 	}
 
+	printf("\n  Average -- Response: %3.2f  Turnaround %3.2f  Wait %3.2f\n\n", responseSum / (float) totalJobs, turnaroundSum / (float) totalJobs, waitSum / (float) totalJobs);
 }
 
 void compute(Job** readyQueue, const Options* opts) {
