@@ -45,6 +45,7 @@ struct job {
 };
 typedef struct job Job;
 
+// basic tail-insert linked list implementation
 void insert_back(Job** head, Job* element) {
 	element->next = NULL;
 
@@ -61,6 +62,7 @@ void insert_back(Job** head, Job* element) {
 	p->next = element;
 }
 
+// Sorted linked list insert for SJF scheduling
 void insert_sorted(Job** head, Job* element) {
 	element->next = NULL; // initialize even tho I mgiht overwrite
 	// If no head only one element
@@ -148,6 +150,7 @@ void clone(Job** dest, const Job** src) {
 // END Job
 
 // BEGIN Options
+// this struct is used to store all the options like in the python version
 struct options {
 	int seed;
 	int jobs;
@@ -164,7 +167,8 @@ struct options {
 typedef struct options Options;
 
 void printHelp() {
-	printf("Usage: scheduler.py [options]\n\n");
+	// I tried to get the spacing just right to match the python impl
+	printf("Usage: scheduler [options]\n\n");
 	printf("Options:\n");
 	printf("  %-22s%s\n", "-h, --help", "show this help message and exit");
 	printf("  %-22s%s\n", "-s SEED, --seed=SEED", "the random seed");
@@ -194,6 +198,11 @@ void printArguments(Options* opts) {
 	}
 	printf("\n");
 }
+
+/**
+ * This method parses the arguments passed into the program
+ * and puts values into the location provided opts
+ */
 void parseArguments(Options* opts, int argc, char** argv) {
 
 	opts->help = 0;
@@ -228,9 +237,12 @@ void parseArguments(Options* opts, int argc, char** argv) {
 			const char* jobList = argv[++i];
 			int listLen = strlen(jobList);
 
+			// Idk how many slots I need so this is probably wasteful on space, but more efficient than first counting all of the commas
 			int* jobs = malloc(sizeof(int) * listLen);
 			int jobLen = 0;
 
+			// tl;dr is I wait until i see a comma and take everything up until then and parse into an int and set the
+			// start of the next section (last) as where the comma was
 			int k, last;
 			for (k = 0, last = 0; k <= listLen; k++) {
 				if (jobList[k] == ',' || k == listLen) {
@@ -248,6 +260,7 @@ void parseArguments(Options* opts, int argc, char** argv) {
 			}
 
 
+			// Copy the list of jobs into a newly allocated list on the Options struct and free the temp array
 			opts->jobListLen = jobLen;
 			opts->jobList = malloc(sizeof(int) * jobLen);
 			memcpy(opts->jobList, jobs, jobLen * sizeof(int));
@@ -276,6 +289,7 @@ int main(int argc, char** argv) {
 
 	Job* readyQueue = NULL;
 
+	// I'm passing a reference to the array which makes it way easier to manage the memory in the list
 	createJobs(&readyQueue, &opts);
 
 	if (opts.compute) {
@@ -291,6 +305,10 @@ int main(int argc, char** argv) {
 
 	// No longer using the jobs queue so free up the memory again
 	dispose(&readyQueue);
+
+	if (opts.jobList != NULL) {
+		free(opts.jobList);
+	}
 
 	return 0;
 }
@@ -353,6 +371,7 @@ void computeFIFO(Job** readyQueue, const Options* opts) {
 	printf("\n  Average -- Response: %3.2f  Turnaround %3.2f  Wait %3.2f\n\n", responseSum / (float) count, turnaroundSum / (float) count, waitSum / (float) count);
 }
 
+// This structure is used to store the data of each job status instead of having 5 different arrays
 struct JobStatus {
 	int id;
 	int turnaround;
@@ -366,6 +385,7 @@ void computeRR(Job** jobs, const Options* opts) {
 	printf("Execution trace:\n");
 	const int totalJobs = opts->jobList != NULL ? opts->jobListLen : opts->jobs;
 
+	// Using a struct for job status info instead of handling 5 different arrays
 	JobStatus** statuses = malloc(sizeof(JobStatus*) * totalJobs);
 	int quantum = opts->quantum;
 	int jobCount = totalJobs;
@@ -383,8 +403,6 @@ void computeRR(Job** jobs, const Options* opts) {
 	// Copy the job list
 	Job* runList;
 	clone(&runList, jobs);
-
-	Job* tmp;
 
 	int theTime = 0;
 	while (jobCount > 0) {
@@ -447,7 +465,7 @@ void compute(Job** readyQueue, const Options* opts) {
 				insert_sorted(&sorted, p);
 			}
 			*readyQueue = sorted;
-			break;
+			// No break to fall through into FIFO case
 		}
 		case FIFO:
 			// This works because it's already sorted when inserted with a SJF policy and not when in FIFO.
