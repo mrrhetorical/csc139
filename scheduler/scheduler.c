@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
 // BEGIN Scheduler Policy
 
@@ -107,7 +106,7 @@ void insert(Job** head, Job* element, SchedulerPolicy policy) {
 	}
 }
 
-// Always pop's from the head of the linked list. Will be sorted by policy based on the
+// Always pop's from the head of the linked list. Will be sorted by policy based on the runtime
 Job* pop(Job** head) {
 	if (head == NULL || *head == NULL) {
 		return NULL;
@@ -123,11 +122,9 @@ void dispose(Job** head) {
 	if (head == NULL || *head == NULL)
 		return;
 
-	Job* current = *head;
-	while (current != NULL) {
-		Job* next = current->next;
-		free(current);
-		current = next;
+	Job* p;
+	while ((p = pop(head))) {
+		free(p);
 	}
 	*head = NULL;
 }
@@ -442,7 +439,7 @@ void computeRR(Job** jobs, const Options* opts) {
 void compute(Job** readyQueue, const Options* opts) {
 	printf("** Solutions **\n\n");
 	switch (opts->policy) {
-		case SJF:
+		case SJF: {
 			// Sort the queue and assign the readyQueue to the new one
 			Job* sorted = NULL;
 			Job* p;
@@ -450,6 +447,8 @@ void compute(Job** readyQueue, const Options* opts) {
 				insert_sorted(&sorted, p);
 			}
 			*readyQueue = sorted;
+			break;
+		}
 		case FIFO:
 			// This works because it's already sorted when inserted with a SJF policy and not when in FIFO.
 			computeFIFO(readyQueue, opts);
