@@ -3,4 +3,4 @@ project(scheduler C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(scheduler main.c)
+add_executable(scheduler scheduler.c)
