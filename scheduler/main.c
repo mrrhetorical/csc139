@@ -116,6 +116,20 @@ Job* pop(Job** head) {
 	return popped;
 }
 
+// Cleanly free memory from all objects in this list
+void dispose(Job** head) {
+	if (head == NULL || *head == NULL)
+		return;
+
+	Job* current = *head;
+	while (current != NULL) {
+		Job* next = current->next;
+		free(current);
+		current = next;
+	}
+	*head = NULL;
+}
+
 // Makes a (symbolic?) copy of the list
 void clone(Job** dest, const Job** src) {
 	*dest = NULL;
@@ -253,6 +267,10 @@ int main(int argc, char** argv) {
 		printf("to generate different problems for yourself.\n\n");
 	}
 
+
+	// No longer using the jobs queue so free up the memory again
+	dispose(&readyQueue);
+
 	return 0;
 }
 
@@ -323,7 +341,7 @@ struct JobStatus {
 };
 typedef struct JobStatus JobStatus;
 
-void computeRR(const Job** jobs, const Options* opts) {
+void computeRR(Job** jobs, const Options* opts) {
 	printf("Execution trace:\n");
 	const int totalJobs = opts->jobList != NULL ? opts->jobListLen : opts->jobs;
 
@@ -335,9 +353,9 @@ void computeRR(const Job** jobs, const Options* opts) {
 		statuses[i] = malloc(sizeof(JobStatus));
 		JobStatus* status = statuses[i];
 		status->id = i;
-		status->lastRan = 0.0f;
-		status->wait = 0.0f;
-		status->turnaround = 0.0f;
+		status->lastRan = 0;
+		status->wait = 0;
+		status->turnaround = 0;
 		status->response = -1;
 	}
 
@@ -371,6 +389,9 @@ void computeRR(const Job** jobs, const Options* opts) {
 		status->lastRan = theTime;
 	}
 
+	// Method to clean up job linked list now that it's no longer used
+	dispose(&runList);
+
 	printf("\nFinal statistics:\n");
 	float turnaroundSum = 0.0f;
 	float waitSum = 0.0f;
@@ -384,6 +405,12 @@ void computeRR(const Job** jobs, const Options* opts) {
 	}
 
 	printf("\n  Average -- Response: %3.2f  Turnaround %3.2f  Wait %3.2f\n\n", responseSum / (float) totalJobs, turnaroundSum / (float) totalJobs, waitSum / (float) totalJobs);
+
+	// Free memory from statuses now that they're no longer used. Only place this struct is used so I didn't bother w/ a function
+	for (int i = 0; i < totalJobs; i++) {
+		free(statuses[i]);
+	}
+	free(statuses);
 }
 
 void compute(Job** readyQueue, const Options* opts) {
@@ -399,6 +426,7 @@ void compute(Job** readyQueue, const Options* opts) {
 			break;
 		default:
 			fprintf(stderr, "Error: Policy %s is not available.\n", opts->policyString);
+			break;
 	}
 }
 
