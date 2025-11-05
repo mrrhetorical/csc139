@@ -251,22 +251,25 @@ unsigned long process_block(const unsigned char *buf, size_t len) {
 
     /* Step 2: Count symbol frequencies in this block. */
     for (size_t i = 0; i < len; i++) {
-        /* TODO: Increment frequency for symbol buf[i] */
+        // Increment frequency for symbol buf[i]
+        unsigned char symbol = buf[i];
+        freq[symbol]++;
     }
 
     /* Step 3: Build Huffman tree using provided build_tree() function.
        Pass in the frequency array you just filled. */
-    Node *root = NULL;  /* TODO: call build_tree(freq) */
+    Node *root = build_tree(freq);  /* call build_tree(freq) */
 
     /* Step 4: Compute hash of the tree using provided hash_tree().
        Start with an initial hash value of 0. */
-    unsigned long h = 0;  /* TODO: call hash_tree(root, 0) */
+    unsigned long hashValue = hash_tree(root, 0);  /* call hash_tree(root, 0) */
 
     /* Step 5: Free the Huffman tree to avoid memory leaks. */
-    /* TODO: call free_tree(root) */
+    /* call free_tree(root) */
+    free_tree(root);
 
     /* Step 6: Return the computed hash value for this block. */
-    return 0;  /* Replace with your hash variable */
+    return hashValue;  /* Replace with your hash variable */
 }
 
 /* -------------------------------------------------------------------
@@ -286,6 +289,31 @@ unsigned long process_block(const unsigned char *buf, size_t len) {
      5. Handle any file errors (e.g., fopen failure).
 ------------------------------------------------------------------- */
 int run_single(const char *filename) {
+
+    // Open in binary
+    FILE* file = fopen(filename, "rb");
+    if (file == NULL) {
+        perror("Error opening file");
+        return 1;
+    }
+
+    unsigned char buf[BLOCK_SIZE];
+    unsigned long hashAcc = 0;
+    int blockIdx = 0;
+    size_t bytesRead = 0;
+
+    while ((bytesRead = fread(buf, 1, BLOCK_SIZE, file)) > 0) {
+        unsigned long hash = process_block(buf, bytesRead);
+        print_intermediate(blockIdx, hash, getpid());
+
+        hashAcc = (hashAcc + hash) % LARGE_PRIME;
+
+        blockIdx++;
+    }
+
+    fclose(file);
+
+    print_final(hashAcc);
 
     return 0;
 }
