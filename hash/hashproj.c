@@ -225,8 +225,72 @@ int main(int argc, char *argv[]) {
    init_umem().
    ======================================================================= */
 
+void* heap = NULL;
+node_t* free_list = NULL;
+
 void *umalloc(size_t size) {
-    return malloc(size);
+    if (heap == NULL) {
+        heap = init_umem();
+        if (heap == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory.\n");
+            return NULL;
+        }
+
+        // Initialize the first node in the list with all memory
+        free_list = (node_t*) heap;
+        free_list->size = UMEM_SIZE - sizeof(node_t);
+        free_list->next = NULL;
+    }
+
+    if (size == 0)
+        return NULL;
+
+    size_t adjustedSize = (size + 7); // Makes sure there's extra room
+    adjustedSize = adjustedSize & ~7; // Clear bottom bits to (000) to effectively convert to a base 8
+
+    node_t* current = free_list;
+    node_t* prev = NULL;
+
+    while (current != NULL) {
+        // Size necessary is the size of requested portion + header
+        if (current->size >= adjustedSize + sizeof(header_t)) {
+            size_t remaining = current->size - adjustedSize - sizeof(header_t);
+
+            // Place header at start of the block
+            header_t* header = (header_t*) current;
+            header->size = (long) adjustedSize;
+            header->magic = MAGIC;
+
+
+            // No point in splitting if there isn't enough space for at least 8 bytes after the next node
+            if (remaining >= sizeof(node_t) + 8) {
+                node_t* newNode = (node_t*) (header + sizeof(header_t) + adjustedSize);
+                newNode->size = remaining - sizeof(node_t); // reserve node size
+
+                // insert into list
+                newNode->next = current->next;
+                if (prev != NULL) {
+                    prev->next = newNode;
+                } else {
+                    free_list = newNode;
+                }
+            } else {
+                header->size = current->size - sizeof(header_t);
+                if (prev != NULL) {
+                    prev->next = current->next;
+                } else {
+                    free_list = current->next;
+                }
+            }
+
+            return ((void*) header) + sizeof(header_t);
+        }
+
+        prev = current;
+        current = current->next;
+    }
+
+    return NULL;
 }
 
 void ufree(void *ptr) {
