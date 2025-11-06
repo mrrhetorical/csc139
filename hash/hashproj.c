@@ -304,6 +304,7 @@ void ufree(void *ptr) {
     if (header->magic != MAGIC) {
         fprintf(stderr, "Error: Invalid magic number.\n");
         return;
+    }
 
 
     //convert to freed block
