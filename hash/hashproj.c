@@ -253,11 +253,11 @@ void *umalloc(size_t size) {
 
     // Walk the linked list
     while (curr != NULL) {
-        // Size necessary is the size of requested portion + header
-        // Size of current node + size described by current node must be greater than aligned size + header size
-        if (curr->size + sizeof(node_t) >= adjustedSize + sizeof(header_t)) {
+        // Size necessary is the size of requested portion
+        // Not using size of node_t or header_t bc they are same size
+        if (curr->size >= adjustedSize) {
             node_t* nextNode = curr->next;
-            size_t remaining = curr->size + sizeof(node_t) - adjustedSize - sizeof(header_t);
+            size_t remaining = curr->size - adjustedSize ;
 
             // Place header at start of the block
             header_t* header = (header_t*) curr;
@@ -304,10 +304,11 @@ void ufree(void *ptr) {
     if (header->magic != MAGIC) {
         fprintf(stderr, "Error: Invalid magic number.\n");
         return;
-    }
+
 
     //convert to freed block
     node_t* freed = (node_t*) header;
+    // safe to assume size should be the same bc size of header and node are both 16 bytes
     freed->size = header->size;
 
     // push to top of list
