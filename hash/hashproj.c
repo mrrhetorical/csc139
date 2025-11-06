@@ -412,8 +412,6 @@ int run_single(const char *filename) {
 }
 
 /* -------------------------------------------------------------------
-   TODO: Implement run_multi()
-
    The multi-process version should:
      1. Open the specified input file in binary mode.
      2. Read it in chunks of BLOCK_SIZE bytes into a local buffer.
@@ -439,10 +437,12 @@ int run_single(const char *filename) {
      5. Handle all errors (e.g., fopen, pipe, or fork failures) gracefully.
 ------------------------------------------------------------------- */
 
-typedef struct __pid_ll {
+typedef struct process_node {
     pid_t pid;
-    struct __pid_ll *next;
-} pid_list_t;
+    int pipefd;
+    int block_num;
+    struct process_node *next;
+} process_node_t;
 
 int run_multi(const char *filename) {
     // Open in binary
@@ -456,7 +456,7 @@ int run_multi(const char *filename) {
     unsigned long final_hash = 0;
     int block_num = 0;
     size_t bytesRead = 0;
-    pid_list_t* list = NULL;
+    process_node_t* list = NULL;
 
     size_t totalBytes = 0;
     // Enqueue all of the processes
@@ -478,6 +478,7 @@ int run_multi(const char *filename) {
 
         if (pid == 0) {
             // child
+            // heap and free pointers are invalid when entering child here
             heap = NULL;
             free_list = NULL;
             close(pipefd[0]);
@@ -485,37 +486,50 @@ int run_multi(const char *filename) {
             write(pipefd[1], &hash, sizeof(hash));
 
             close(pipefd[1]);
-            // I literally spent an hour and a half looking into this stupid bug
-            // I at least learned that _exit() does not flush io buffers and that it's generally unsafe to close a file
-            // from a child, even if it *would* work here
+            // I learned that _exit() does not flush io buffers and that this is best practice over closing file buffers
+            // I originally had a cleaner system
             _exit(0);
         } else {
             // parent
             close(pipefd[1]);
 
-            unsigned long hash = 0;
-            read(pipefd[0], &hash, sizeof(hash));
+            // Add new node to the list for parralelism to let it run
+            process_node_t* new_node = umalloc(sizeof(process_node_t));
+            new_node->pid = pid;
+            new_node->block_num = block_num;
+            new_node->pipefd = pipefd[0];
+            new_node->next = NULL;
 
-            close(pipefd[0]);
-
-            print_intermediate(block_num, hash, pid);
-
-            final_hash = (final_hash + hash) % LARGE_PRIME;
+            // insert into end of list to preserve order when traversing
+            if (list == NULL) {
+                list = new_node;
+            } else {
+                process_node_t* curr = list;
+                while (curr->next != NULL) {
+                    curr = curr->next;
+                }
+                curr->next = new_node;
+            }
 
             block_num++;
-
-            pid_list_t* new_node = malloc(sizeof(pid_list_t));
-            new_node->pid = pid;
-            new_node->next = list;
-            list = new_node;
         }
 
     }
 
-    pid_list_t* curr = list;
-    while (waitpid(curr->pid, NULL, 0) != curr->pid) {
-        pid_list_t* next = curr->next;
-        free(curr);
+    process_node_t* curr = list;
+    while (curr) {
+        while (waitpid(curr->pid, NULL, 0) != curr->pid) {}
+
+        // read hash now that process is done
+        unsigned long hash = 0;
+        read(curr->pipefd, &hash, sizeof(hash));
+        close(curr->pipefd);
+
+        print_intermediate(curr->block_num, hash, curr->pid);
+        final_hash = (final_hash + hash) % LARGE_PRIME;
+
+        process_node_t* next = curr->next;
+        ufree(curr);
         curr = next;
     }
 
