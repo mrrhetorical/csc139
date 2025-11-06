@@ -255,7 +255,7 @@ void *umalloc(size_t size) {
     while (curr != NULL) {
         // Size necessary is the size of requested portion
         // Not using size of node_t or header_t bc they are same size
-        if (curr->size >= adjustedSize) {
+        if (curr->size >= (long) adjustedSize) {
             node_t* nextNode = curr->next;
             size_t remaining = curr->size - adjustedSize ;
 
