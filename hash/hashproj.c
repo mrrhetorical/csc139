@@ -228,6 +228,7 @@ int main(int argc, char *argv[]) {
 void* heap = NULL;
 node_t* free_list = NULL;
 
+#ifndef MEMORY_ALLOCATOR
 void *umalloc(size_t size) {
     if (heap == NULL) {
         heap = init_umem();
@@ -254,6 +255,7 @@ void *umalloc(size_t size) {
     while (current != NULL) {
         // Size necessary is the size of requested portion + header
         if (current->size >= adjustedSize + sizeof(header_t)) {
+            node_t* nextNode = current->next;
             size_t remaining = current->size - adjustedSize - sizeof(header_t);
 
             // Place header at start of the block
@@ -264,26 +266,26 @@ void *umalloc(size_t size) {
 
             // No point in splitting if there isn't enough space for at least 8 bytes after the next node
             if (remaining >= sizeof(node_t) + 8) {
-                node_t* newNode = (node_t*) (header + sizeof(header_t) + adjustedSize);
+                node_t* newNode = (node_t*) ((char*) header + sizeof(header_t) + adjustedSize);
                 newNode->size = remaining - sizeof(node_t); // reserve node size
 
                 // insert into list
-                newNode->next = current->next;
+                newNode->next = nextNode;
                 if (prev != NULL) {
                     prev->next = newNode;
                 } else {
                     free_list = newNode;
                 }
             } else {
-                header->size = current->size - sizeof(header_t);
+                header->size = current->size;
                 if (prev != NULL) {
-                    prev->next = current->next;
+                    prev->next = nextNode;
                 } else {
-                    free_list = current->next;
+                    free_list = nextNode;
                 }
             }
 
-            return ((void*) header) + sizeof(header_t);
+            return (void*) ((char*) header + sizeof(header_t));
         }
 
         prev = current;
@@ -294,8 +296,32 @@ void *umalloc(size_t size) {
 }
 
 void ufree(void *ptr) {
+    if (ptr == NULL) return;
+
+    header_t* header =  (header_t*) ((char*) ptr - sizeof(header_t));
+
+    if (header->magic != MAGIC) {
+        fprintf(stderr, "Error: Invalid magic number.\n");
+        return;
+    }
+
+    //convert to freed block
+    node_t* freed = (node_t*) header;
+    freed->size = header->size;
+
+    // push to top of list
+    freed->next = free_list;
+    free_list = freed;
+}
+#else
+void* umalloc(size_t size) {
+    return malloc(size);
+}
+
+void ufree(void* ptr) {
     free(ptr);
 }
+#endif
 
 
 unsigned long process_block(const unsigned char *buf, size_t len) {
