@@ -391,22 +391,22 @@ int run_single(const char *filename) {
     }
 
     unsigned char buf[BLOCK_SIZE];
-    unsigned long hashAcc = 0;
-    int blockIdx = 0;
+    unsigned long final_hash = 0;
+    int block_num = 0;
     size_t bytesRead = 0;
 
     while ((bytesRead = fread(buf, 1, BLOCK_SIZE, file)) > 0) {
         unsigned long hash = process_block(buf, bytesRead);
-        print_intermediate(blockIdx, hash, getpid());
+        print_intermediate(block_num, hash, getpid());
 
-        hashAcc = (hashAcc + hash) % LARGE_PRIME;
+        final_hash = (final_hash + hash) % LARGE_PRIME;
 
-        blockIdx++;
+        block_num++;
     }
 
     fclose(file);
 
-    print_final(hashAcc);
+    print_final(final_hash);
 
     return 0;
 }
@@ -439,7 +439,90 @@ int run_single(const char *filename) {
      5. Handle all errors (e.g., fopen, pipe, or fork failures) gracefully.
 ------------------------------------------------------------------- */
 
+typedef struct __pid_ll {
+    pid_t pid;
+    struct __pid_ll *next;
+} pid_list_t;
+
 int run_multi(const char *filename) {
+    // Open in binary
+    FILE* file = fopen(filename, "rb");
+    if (file == NULL) {
+        perror("Error opening file");
+        return 1;
+    }
+
+    unsigned char buf[BLOCK_SIZE];
+    unsigned long final_hash = 0;
+    int block_num = 0;
+    size_t bytesRead = 0;
+    pid_list_t* list = NULL;
+
+    size_t totalBytes = 0;
+    // Enqueue all of the processes
+    while ((bytesRead = fread(buf, 1, BLOCK_SIZE, file)) > 0) {
+        totalBytes += bytesRead;
+        int pipefd[2];
+        if (pipe(pipefd) == -1) {
+            perror("Error creating pipe");
+            exit(1);
+        }
+
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            perror("Error forking");
+            fclose(file);
+            exit(1);
+        }
+
+        if (pid == 0) {
+            // child
+            heap = NULL;
+            free_list = NULL;
+            close(pipefd[0]);
+            unsigned long hash = process_block(buf, bytesRead);
+            write(pipefd[1], &hash, sizeof(hash));
+
+            close(pipefd[1]);
+            // I literally spent an hour and a half looking into this stupid bug
+            // I at least learned that _exit() does not flush io buffers and that it's generally unsafe to close a file
+            // from a child, even if it *would* work here
+            _exit(0);
+        } else {
+            // parent
+            close(pipefd[1]);
+
+            unsigned long hash = 0;
+            read(pipefd[0], &hash, sizeof(hash));
+
+            close(pipefd[0]);
+
+            print_intermediate(block_num, hash, pid);
+
+            final_hash = (final_hash + hash) % LARGE_PRIME;
+
+            block_num++;
+
+            pid_list_t* new_node = malloc(sizeof(pid_list_t));
+            new_node->pid = pid;
+            new_node->next = list;
+            list = new_node;
+        }
+
+    }
+
+    pid_list_t* curr = list;
+    while (waitpid(curr->pid, NULL, 0) != curr->pid) {
+        pid_list_t* next = curr->next;
+        free(curr);
+        curr = next;
+    }
+
+    fclose(file);
+
+    print_final(final_hash);
+
+
     return 0;
 }
-
