@@ -4,3 +4,5 @@ project(hash C)
 set(CMAKE_C_STANDARD 11)
 
 add_executable(hash hashproj.c)
+
+add_executable(sharedhash sharedhash.c)
