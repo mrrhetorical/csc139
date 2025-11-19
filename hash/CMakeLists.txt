@@ -6,3 +6,7 @@ set(CMAKE_C_STANDARD 11)
 add_executable(hash hashproj.c)
 
 add_executable(sharedhash sharedhash.c)
+
+add_executable(sharedhash_debug sharedhash.c)
+
+target_compile_definitions(sharedhash_debug PRIVATE DEBUG)

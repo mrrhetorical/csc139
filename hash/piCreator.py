@@ -1,6 +1,6 @@
 import decimal
 
-decimal.getcontext().prec = 10010
+decimal.getcontext().prec = 100010
 
 def compute_pi():
 	one = decimal.Decimal(1)

@@ -16,7 +16,7 @@ void *umalloc(size_t size);
 void ufree(void *ptr);
 unsigned long process_block(const unsigned char *buf, size_t len);
 int run_single(const char *filename);
-int run_multi(const char *filename);
+int run_threads(const char *filename);
 
 
 /* =======================================================================
@@ -209,7 +209,7 @@ int main(int argc, char *argv[]) {
     int use_multi = (argc >= 3 && strcmp(argv[2], "-m") == 0);
 
     if (use_multi)
-        return run_multi(filename);
+        return run_threads(filename);
     else
         return run_single(filename);
 }
@@ -444,7 +444,7 @@ typedef struct process_node {
     struct process_node *next;
 } process_node_t;
 
-int run_multi(const char *filename) {
+int run_threads(const char *filename) {
     // Open in binary
     FILE* file = fopen(filename, "rb");
     if (file == NULL) {

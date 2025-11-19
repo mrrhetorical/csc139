@@ -66,7 +66,7 @@ void *umalloc(size_t size);
 void ufree(void *ptr);
 unsigned long process_block(const unsigned char *buf, size_t len);
 int run_single(const char *filename);
-int run_multi(const char *filename);
+int run_threads(const char *filename);
 
 /* =======================================================================
    PROVIDED CODE — DO NOT MODIFY
@@ -96,7 +96,7 @@ typedef struct __node_t {
  * multiple children try to allocate/free simultaneously.
  */
 
-static node_t **free_list_ptr = NULL;
+static node_t* free_list = NULL;
 
 #define ALIGNMENT 16
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~(ALIGNMENT - 1))
@@ -129,25 +129,14 @@ int use_multiprocess = 0;
  */
 
 void *init_umem(void) {
-    free_list_ptr = mmap(NULL, sizeof(node_t *),
-                         PROT_READ | PROT_WRITE,
-                         MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    if (free_list_ptr == MAP_FAILED) {
-        perror("mmap free_list_ptr");
+    void *base = malloc(UMEM_SIZE);
+    if (!base) {
+        perror("malloc");
         exit(1);
     }
-
-    void *base = mmap(NULL, UMEM_SIZE,
-                      PROT_READ | PROT_WRITE,
-                      MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    if (base == MAP_FAILED) {
-        perror("mmap");
-        exit(1);
-    }
-
-    *free_list_ptr = (node_t *)base;
-    (*free_list_ptr)->size = UMEM_SIZE - sizeof(node_t);
-    (*free_list_ptr)->next = NULL;
+    free_list = (node_t *)base;
+    free_list->size = UMEM_SIZE - sizeof(node_t);
+    free_list->next = NULL;
     return base;
 }
 
@@ -167,7 +156,7 @@ void *init_umem(void) {
  */
 
 static void coalesce(void) {
-    node_t *curr = *free_list_ptr;
+    node_t *curr = free_list;
     while (curr && curr->next) {
         char *end = (char *)curr + sizeof(node_t) + ALIGN(curr->size);
         if (end == (char *)curr->next) {
@@ -205,7 +194,7 @@ void *_umalloc(size_t size) {
 
     size = ALIGN(size);
     node_t *prev = NULL;
-    node_t *curr = *free_list_ptr;
+    node_t *curr = free_list;
 
     while (curr) {
         if (curr->size >= (long)size) {
@@ -225,12 +214,12 @@ void *_umalloc(size_t size) {
                 if (prev)
                     prev->next = new_free;
                 else
-                    *free_list_ptr = new_free;
+                    free_list = new_free;
             } else {
                 if (prev)
                     prev->next = next_free;
                 else
-                    *free_list_ptr = next_free;
+                    free_list = next_free;
             }
 
             return user_ptr;
@@ -270,11 +259,11 @@ void _ufree(void *ptr) {
     node->size = ALIGN(hdr->size);
     node->next = NULL;
 
-    if (!*free_list_ptr || node < *free_list_ptr) {
-        node->next = *free_list_ptr;
-        *free_list_ptr = node;
+    if (!free_list || node < free_list) {
+        node->next = free_list;
+        free_list = node;
     } else {
-        node_t *curr = *free_list_ptr;
+        node_t *curr = free_list;
         while (curr->next && curr->next < node)
             curr = curr->next;
         node->next = curr->next;
@@ -463,12 +452,13 @@ int main(int argc, char *argv[]) {
     }
 
     const char *filename = argv[1];
-    use_multiprocess = (argc >= 3 && strcmp(argv[2], "-m") == 0);
+    //TODO: separate if required to have actual mutliprocess vs threaded version
+    use_multiprocess = (argc >= 3 && strcmp(argv[2], "-m") == 0) || (argc >= 3 && strcmp(argv[2], "-t") == 0);
 
     init_umem();
 
     if (use_multiprocess)
-        return run_multi(filename);
+        return run_threads(filename);
     else
         return run_single(filename);
 }
@@ -587,7 +577,7 @@ void *worker_thread(void *arg) {
     return NULL;
 }
 
-int run_multi(const char *filename) {
+int run_threads(const char *filename) {
     FILE *fp = fopen(filename, "rb");
     if (!fp) {
         perror("fopen");
