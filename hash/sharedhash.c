@@ -55,6 +55,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <semaphore.h>
+#include <pthread.h>
 
 #define BLOCK_SIZE 1024
 #define SYMBOLS 256
@@ -575,6 +576,24 @@ int run_single(const char *filename) {
  * of the time. This is why students will optimize the allocator in Part 2.
  */
 
+// Thread argument structure
+typedef struct {
+    int block_id;
+    unsigned char *block_buf;
+    size_t block_len;
+    unsigned long *results;
+} thread_arg_t;
+
+// Worker thread function
+void *worker_thread(void *arg) {
+    thread_arg_t *targ = (thread_arg_t *)arg;
+    unsigned long h = process_block(targ->block_buf, targ->block_len);
+    ufree(targ->block_buf);
+    targ->results[targ->block_id] = h;
+    ufree(targ);
+    return NULL;
+}
+
 int run_multi(const char *filename) {
     FILE *fp = fopen(filename, "rb");
     if (!fp) {
@@ -584,8 +603,8 @@ int run_multi(const char *filename) {
 
     unsigned char buf[BLOCK_SIZE];
     unsigned long final_hash = 0;
-    pid_t pids[1024];
-    int pipe_fds[1024];
+    unsigned long results[1024];
+    pthread_t threads[1024];
     int num_blocks = 0;
 
     /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -610,50 +629,21 @@ int run_multi(const char *filename) {
         }
         memcpy(block_buf, buf, n);
 
-        int pipefd[2];
-        if (pipe(pipefd) == -1) {
-            perror("pipe");
+        thread_arg_t *args = umalloc(sizeof(thread_arg_t));
+        args->block_id = num_blocks;
+        args->block_buf = block_buf;
+        args->block_len = n;
+        args->results = results;
+        int r = pthread_create(&threads[num_blocks], NULL, worker_thread, args);
+
+        if (r) {
+            perror("pthread_create");
             ufree(block_buf);
             fclose(fp);
             return 1;
         }
 
-        pid_t pid = fork();
-        if (pid < 0) {
-            perror("fork");
-            ufree(block_buf);
-            fclose(fp);
-            return 1;
-        }
-
-        if (pid == 0) {
-            /* Child process: compute hash, write result, exit
-             *
-             * Close inherited file descriptor - child doesn't need it
-             * and leaving it open wastes resources. Close read end of
-             * pipe since we only write.
-             */
-            fclose(fp);
-            close(pipefd[0]);
-            unsigned long h = process_block(block_buf, n);
-            ufree(block_buf);
-            write(pipefd[1], &h, sizeof(h));
-            close(pipefd[1]);
-            exit(0);
-        } else {
-            /* Parent: save child info, continue forking
-             *
-             * Don't wait here! That would serialize execution. Just
-             * save the PID and pipe descriptor so we can collect results
-             * later. Close write end since parent only reads.
-             *
-             * Note: block_buf will be freed by child after processing.
-             */
-            close(pipefd[1]);
-            pids[num_blocks] = pid;
-            pipe_fds[num_blocks] = pipefd[0];
-            num_blocks++;
-        }
+        num_blocks++;
     }
 
     fclose(fp);
@@ -667,14 +657,6 @@ int run_multi(const char *filename) {
      * we block until it writes.
      */
 
-    for (int i = 0; i < num_blocks; i++) {
-        unsigned long h = 0;
-        read(pipe_fds[i], &h, sizeof(h));
-        close(pipe_fds[i]);
-        print_intermediate(i, h, pids[i]);
-        final_hash = (final_hash + h) % LARGE_PRIME;
-    }
-
     /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
      * Phase 3: Wait for all children to complete
      *
@@ -683,8 +665,12 @@ int run_multi(const char *filename) {
      * ensures clean termination.
      */
 
-    for (int i = 0; i < num_blocks; i++)
-        waitpid(pids[i], NULL, 0);
+    for (int i = 0; i < num_blocks; i++) {
+        pthread_join(threads[i], NULL);
+        unsigned long h = results[i];
+        print_intermediate(i, h, i);
+        final_hash = (final_hash + h) % LARGE_PRIME;
+    }
 
     print_final(final_hash);
     return 0;
