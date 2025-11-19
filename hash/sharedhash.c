@@ -112,7 +112,7 @@ static node_t **free_list_ptr = NULL;
  * This avoids locking overhead when running single-threaded.
  */
 
-sem_t* mLock;
+pthread_mutex_t mLock = PTHREAD_MUTEX_INITIALIZER;
 int use_multiprocess = 0;
 
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -135,17 +135,6 @@ void *init_umem(void) {
     if (free_list_ptr == MAP_FAILED) {
         perror("mmap free_list_ptr");
         exit(1);
-    }
-
-    if (use_multiprocess) {
-        mLock = mmap(NULL, sizeof(sem_t),
-                     PROT_READ | PROT_WRITE,
-                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-        if (mLock == MAP_FAILED) {
-            perror("mmap semaphore");
-            exit(1);
-        }
-        sem_init(mLock, 1, 1);  // pshared=1: shared between processes
     }
 
     void *base = mmap(NULL, UMEM_SIZE,
@@ -314,16 +303,20 @@ void _ufree(void *ptr) {
  */
 
 void *umalloc(size_t size) {
-    if (use_multiprocess) sem_wait(mLock);
+    if (use_multiprocess)
+        pthread_mutex_lock(&mLock);
     void* p = _umalloc(size);
-    if (use_multiprocess) sem_post(mLock);
+    if (use_multiprocess)
+        pthread_mutex_unlock(&mLock);
     return p;
 }
 
 void ufree(void *ptr) {
-    if (use_multiprocess) sem_wait(mLock);
+    if (use_multiprocess)
+        pthread_mutex_lock(&mLock);
     _ufree(ptr);
-    if (use_multiprocess) sem_post(mLock);
+    if (use_multiprocess)
+        pthread_mutex_unlock(&mLock);
 }
 
 /* =======================================================================
