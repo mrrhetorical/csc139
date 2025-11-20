@@ -12,11 +12,11 @@ enum scheduler_policy {
 typedef enum scheduler_policy SchedulerPolicy;
 
 SchedulerPolicy policyFromString(const char* policy) {
-	if (!strcmpi(policy, "FIFO")) {
+	if (!strcmp(policy, "FIFO")) {
 		return FIFO;
-	} else if (!strcmpi(policy, "SJF")) {
+	} else if (!strcmp(policy, "SJF")) {
 		return SJF;
-	} else if (!strcmpi(policy, "RR")) {
+	} else if (!strcmp(policy, "RR")) {
 		return RR;
 	}
 
@@ -217,23 +217,23 @@ void parseArguments(Options* opts, int argc, char** argv) {
 
 	for (int i = 0; i < argc; i++) {
 		const char* arg = argv[i];
-		if (!strcmpi(arg, "-h") || !strcmpi(arg, "--help")) {
+		if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
 			opts->help = 1;
-		} else if (!strcmpi(arg, "-s") || !strcmpi(arg, "--seed")) {
+		} else if (!strcmp(arg, "-s") || !strcmp(arg, "--seed")) {
 			opts->seed =  atoi(argv[++i]);
-		} else if (!strcmpi(arg, "-j") || !strcmpi(arg, "--jobs")) {
+		} else if (!strcmp(arg, "-j") || !strcmp(arg, "--jobs")) {
 			opts->jobs = atoi(argv[++i]);
-		} else if (!strcmpi(arg, "-m") || !strcmpi(arg, "--maxlen")) {
+		} else if (!strcmp(arg, "-m") || !strcmp(arg, "--maxlen")) {
 			opts->maxLength = atoi(argv[++i]);
-		} else if (!strcmpi(arg, "-p") || !strcmpi(arg, "--policy")) {
+		} else if (!strcmp(arg, "-p") || !strcmp(arg, "--policy")) {
 			const char* policy = argv[++i];
 			opts->policyString = policy;
 			opts->policy = policyFromString(policy);
-		} else if (!strcmpi(arg, "-q") || !strcmpi(arg, "--quantum")) {
+		} else if (!strcmp(arg, "-q") || !strcmp(arg, "--quantum")) {
 			opts->quantum = atoi(argv[++i]);
-		} else if (!strcmpi(arg, "-c")) {
+		} else if (!strcmp(arg, "-c")) {
 			opts->compute = 1; // Set to true
-		} else if (!strcmpi(arg, "-l") || !strcmpi(arg, "--jlist")) {
+		} else if (!strcmp(arg, "-l") || !strcmp(arg, "--jlist")) {
 			const char* jobList = argv[++i];
 			int listLen = strlen(jobList);
 
