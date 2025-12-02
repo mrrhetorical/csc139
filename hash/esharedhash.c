@@ -447,12 +447,11 @@ void print_final(unsigned long final_hash) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <file> [-m]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <file> [-t]\n", argv[0]);
         return 1;
     }
 
     const char *filename = argv[1];
-    //TODO: separate if required to have actual mutliprocess vs threaded version
     use_multiprocess = (argc >= 3 && strcmp(argv[2], "-m") == 0) || (argc >= 3 && strcmp(argv[2], "-t") == 0);
 
     init_umem();
