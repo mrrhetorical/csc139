@@ -97,9 +97,10 @@ int use_multiprocess = 0;
 
 __thread char* pool_start = NULL;
 __thread char* pool_current = NULL;
+__thread size_t pool_size = 0;
 
 #define NUM_THREADS 1024
-#define POOL_SIZE 1024
+#define MAX_POOL_SIZE 1024
 
 // thread heap where mostly unmanaged sections of memory live for each thread to do as they wish using pooling
 char* thread_heap;
@@ -121,7 +122,7 @@ void *init_umem(void) {
 
     // I need to reserve 1mb for thread pools and I'm not sure how else I can do this other than pre-allocating before
     // I make the free list. I think some threads will go over their fill and I need some left over to make sure it's
-    size_t total_reserved = NUM_THREADS * POOL_SIZE;
+    size_t total_reserved = NUM_THREADS * MAX_POOL_SIZE;
     size_t remaining = UMEM_SIZE - total_reserved;
     free_list = (node_t *)((char*)base + total_reserved);
     free_list->size = remaining - sizeof(node_t);
@@ -223,7 +224,7 @@ void _ufree(void *ptr) {
 void* umalloc_fast(size_t size) {
     size = ALIGN(size);
     if (pool_current != NULL) {
-        if (pool_current + size <= pool_start + POOL_SIZE) {
+        if (pool_current + size <= pool_start + pool_size) {
             void* ptr = pool_current;
             pool_current += size;
 			#ifdef DEBUG
@@ -257,7 +258,7 @@ void ufree(void *ptr) {
     // No-op on thread heaps
     if (thread_heap != NULL) {
         char *c = (char *)ptr;
-        if (c >= thread_heap && c < thread_heap + NUM_THREADS * POOL_SIZE) {
+        if (c >= thread_heap && c < thread_heap + NUM_THREADS * pool_size) {
 			#ifdef DEBUG
 			bypassAccesses++;
 			#endif
@@ -478,11 +479,16 @@ typedef struct {
     unsigned char *block_buf;
     size_t block_len;
     unsigned long *results;
+    int num_threads;
 } thread_arg_t;
 
 // Initializes the thread pool for the thread id by an offset
-void thread_pool_init(int tid) {
-    size_t offset = tid * POOL_SIZE;
+void thread_pool_init(int tid, int num_threads) {
+    pool_size = MAX_POOL_SIZE * NUM_THREADS / num_threads;
+    #ifdef DEBUG
+    printf("Pool size: %lu\n", pool_size);
+    #endif
+    size_t offset = tid * pool_size;
     pool_start = (char*) thread_heap + offset;
     pool_current = pool_start;
 }
@@ -491,7 +497,7 @@ void thread_pool_init(int tid) {
 void *worker_thread(void *arg) {
     thread_arg_t *targ = (thread_arg_t *)arg;
 
-    thread_pool_init(targ->block_id);
+    thread_pool_init(targ->block_id, targ->num_threads);
 
     unsigned long h = process_block(targ->block_buf, targ->block_len);
     ufree(targ->block_buf);
@@ -506,6 +512,25 @@ int run_threads(const char *filename) {
         perror("fopen");
         return 1;
     }
+
+    // get the file size:
+    long file_size = 0;
+    long current = ftell(fp);
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        perror("fseek");
+        return 1;
+    }
+
+    file_size = ftell(fp);
+    if (fseek(fp, current, SEEK_SET) != 0) {
+        perror("fseek");
+        return 1;
+    }
+
+    int num_threads = file_size / 1024;
+    #ifdef DEBUG
+    printf("I need %d threads\n", num_threads);
+    #endif
 
     unsigned char buf[BLOCK_SIZE];
     unsigned long final_hash = 0;
@@ -540,6 +565,7 @@ int run_threads(const char *filename) {
         args->block_buf = block_buf;
         args->block_len = n;
         args->results = results;
+        args->num_threads = num_threads;
         int r = pthread_create(&threads[num_blocks], NULL, worker_thread, args);
 
         if (r) {
