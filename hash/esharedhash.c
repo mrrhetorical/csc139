@@ -115,9 +115,14 @@ static node_t* free_list = NULL;
 pthread_mutex_t mLock = PTHREAD_MUTEX_INITIALIZER;
 int use_multiprocess = 0;
 
-__thread char *pool_start = NULL;
-__thread char *pool_current = NULL;
+__thread char* pool_start = NULL;
+__thread char* pool_current = NULL;
 __thread size_t pool_size = 0;
+
+#define NUM_THREADS 1024
+#define POOL_SIZE 1024
+
+char* thread_heap;
 
 
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -140,19 +145,22 @@ void *init_umem(void) {
         exit(1);
     }
 
-    size_t total_reserved = 1024 * 1024;
+    // I need to reserve 1mb for thread pools and I'm not sure how else I can do this other than pre-allocating before
+    // I make the free list. I think some threads will go over their fill and I need some left over to make sure it's
+    size_t total_reserved = NUM_THREADS * POOL_SIZE;
 
-    for (int i = 0; i < 1024; i++) {
-        header_t *hdr = (header_t *)((char*)base + i * pool_size);
-        hdr->size = pool_size - sizeof(header_t);
+    for (int i = 0; i < NUM_THREADS; i++) {
+        header_t *hdr = (header_t *)((char*)base + i * POOL_SIZE);
+        hdr->size = POOL_SIZE - sizeof(header_t);
         hdr->magic = MAGIC;
     }
 
-    // Global free list gets half of memory because some threads will go over but some won't
-    size_t remain = UMEM_SIZE - total_reserved;
+    size_t remaining = UMEM_SIZE - total_reserved;
     free_list = (node_t *)((char*)base + total_reserved);
-    free_list->size = remain - sizeof(node_t);
+    free_list->size = remaining - sizeof(node_t);
     free_list->next = NULL;
+
+    thread_heap = base;
 
     return base;
 }
@@ -595,10 +603,10 @@ typedef struct {
 } thread_arg_t;
 
 void thread_pool_init(int tid) {
-    size_t offset = tid * 1024;
-    pool_start = (char*) free_list - (UMEM_SIZE - pool_size * 1024) + offset;
+    size_t offset = tid * NUM_THREADS;
+    pool_start = (char*) thread_heap + offset;
     pool_current = pool_start + sizeof(header_t);
-    pool_size = pool_size - sizeof(header_t);
+    pool_size = POOL_SIZE - sizeof(header_t);
 }
 
 // Worker thread function
