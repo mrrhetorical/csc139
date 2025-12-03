@@ -2,15 +2,24 @@
 
 ## Strategy of Choice
 I chose to implement strategy A with per-thread memory pools because conceptually it made the most sense for me.
-I'm currently attending CSC 163 which is all about concurrency in CUDA C on GPU architecture so thinking about splitting
-up memory in that way isn't too far off from what I had to do in that class for some of my assignments.
-Each thread in this case gets it's own region of memory that's in a dedicated region of the memory managed by a
+I'm currently attending CSC 163 which is all about concurrency in CUDA C on GPU architecture and I notice some similarities
+with regular threaded programming using this pattern.
+Each thread in this case gets it's own region of memory that's itself in a sectioned off part of the memory managed by a
 simple bump pointer.
 
 An important note is that I didn't use all 2mb of memory for the thread pools, but only 1mb.
 This is because I was using umalloc() and ufree() to allocate the thread arguments and buffer, and also allowed
-for some flexibility in how much memory each thread actually needed. 85-90% of the time the thread pool
-was sufficient or mostly sufficient, so In my mind this was a negligible performance hit for the ease of use. I experienced
+for some flexibility in how much memory each thread actually needed past what they were allowed initially to prevent wasting
+too much memory. For small files I was encountering issues with this approach where I was getting only 26% of the malloc
+lock contentions bypassed, but I was able to cut that down by using fseek() to find the end of the file and calculate the max number
+of threads I will need to use. From there I scaled how much space was available in each thread's memory pool and saw a massive
+improvement, jumping up to 99% lock acquisition avoidance rate for smaller files without a hit for bigger files.
+Here's the debug output showing I was skipping lock acquisition 87% of the time on my 1mb file that you can see in the below image:
+
+![Results showing how many lock accesses were made compared to those bypassed by the thread pool](lock_results.png)
+
+Demonstration of lock bypass rate for a small file comparatively:
+![Full debug results of higher lock bypass rate for smaller files](lock_small.png)
 
 ## Timing data comparison
 ![Timing data console output](timing_output.png)
