@@ -1,6 +1,25 @@
-# Performance report
+# CSC 139 Threads and Memory Project
 
-## Strategy of Choice
+## Project Description (sharedhash.c)
+
+## Part 1 Deliverables
+
+For the sharedhash.c project, I converted instances of fork() to use pthread_create() using a worker function.
+In my implementation I also replaced the init_umem() to use malloc() instead of mmap(). I found it was easier to work with
+the free_list as a simple pointer so with this design I was able to convert it as such, and also modified the semaphore
+to be a simple mutex for locking. Instead of passing data back via a pipe to the parent thread I'm using a simple global
+array that each thread writes back to. After spawning all of my threads I wait for them each to finish and assemble the
+final hash. 
+
+The difference between thread based memory and process based memory is that the former is shared across all
+threads in the process, while the latter is not. This means that, for example, I was allowed to change the free_list
+within any thread without desynchronizing the other threads, whereas in the process-based approach, if I changed the free_list
+directly then I could have a totally diverged state of the free_list compared to other processes, because memory among processes
+is not shared, but copied on creation, which is why the double pointer was required in the first place.
+
+## Part 2 Deliverables
+
+### Strategy of Choice
 I chose to implement strategy A with per-thread memory pools because conceptually it made the most sense for me.
 I'm currently attending CSC 163 which is all about concurrency in CUDA C on GPU architecture and I notice some similarities
 with regular threaded programming using this pattern.
@@ -21,7 +40,7 @@ Here's the debug output showing I was skipping lock acquisition 87% of the time 
 Demonstration of lock bypass rate for a small file comparatively:
 ![Full debug results of higher lock bypass rate for smaller files](lock_small.png)
 
-## Timing data comparison
+### Timing data comparison
 ![Timing data console output](timing_output.png)
 
 I tested extensively but the above image is a subset fairly representative of the data I saw
@@ -43,12 +62,12 @@ However, the performance gains averaged around 0.003s and I saw at most a 0.016s
 though this is certainly an outlier and not representative of the average.
 
 
-## What I learned about concurrency
+### What I learned about concurrency
 I learned that while locks are important for thread safety, I can utilize different strategies
 to achieve the same goal. I also learned about direct memory management through this project.
 I'm generally a comfortable C/C++ developer, but I've never written or worked with a custom allocator before, so this
 was an interesting project to learn about, even though it was one of the most challenging I've had in my CS degree path.
 
 
-## For fun: Valgrind results
+### For fun: Valgrind results
 ![Valgrind output](valgrind_output.png)
