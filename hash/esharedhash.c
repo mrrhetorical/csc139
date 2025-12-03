@@ -148,13 +148,6 @@ void *init_umem(void) {
     // I need to reserve 1mb for thread pools and I'm not sure how else I can do this other than pre-allocating before
     // I make the free list. I think some threads will go over their fill and I need some left over to make sure it's
     size_t total_reserved = NUM_THREADS * POOL_SIZE;
-
-    for (int i = 0; i < NUM_THREADS; i++) {
-        header_t *hdr = (header_t *)((char*)base + i * POOL_SIZE);
-        hdr->size = POOL_SIZE - sizeof(header_t);
-        hdr->magic = MAGIC;
-    }
-
     size_t remaining = UMEM_SIZE - total_reserved;
     free_list = (node_t *)((char*)base + total_reserved);
     free_list->size = remaining - sizeof(node_t);
@@ -337,6 +330,18 @@ void *umalloc(size_t size) {
 }
 
 void ufree(void *ptr) {
+    if (ptr == NULL)
+        return;
+
+    // No-op on thread heaps
+    if (thread_heap != NULL) {
+        char *c = (char *)ptr;
+        if (c >= thread_heap && c < thread_heap + NUM_THREADS * POOL_SIZE) {
+            return;
+        }
+    }
+
+
     if (use_multiprocess)
         pthread_mutex_lock(&mLock);
     _ufree(ptr);
@@ -603,15 +608,18 @@ typedef struct {
 } thread_arg_t;
 
 void thread_pool_init(int tid) {
-    size_t offset = tid * NUM_THREADS;
+    size_t offset = tid * POOL_SIZE;
     pool_start = (char*) thread_heap + offset;
-    pool_current = pool_start + sizeof(header_t);
-    pool_size = POOL_SIZE - sizeof(header_t);
+    pool_current = pool_start;
+    pool_size = POOL_SIZE;
 }
 
 // Worker thread function
 void *worker_thread(void *arg) {
     thread_arg_t *targ = (thread_arg_t *)arg;
+
+    thread_pool_init(targ->block_id);
+
     unsigned long h = process_block(targ->block_buf, targ->block_len);
     ufree(targ->block_buf);
     targ->results[targ->block_id] = h;
