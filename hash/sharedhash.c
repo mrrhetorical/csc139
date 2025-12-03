@@ -115,19 +115,7 @@ static node_t* free_list = NULL;
 pthread_mutex_t mLock = PTHREAD_MUTEX_INITIALIZER;
 int use_multiprocess = 0;
 
-/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- * Memory Allocator Initialization
- *
- * Sets up three shared memory regions:
- *   1. free_list_ptr - pointer to the free list head (sizeof pointer)
- *   2. mLock - semaphore for synchronization (if multi-process)
- *   3. heap - the actual managed memory region (UMEM_SIZE bytes)
- *
- * All three use MAP_SHARED so modifications are visible across fork().
- * The heap is initialized with a single free block spanning the entire
- * region.
- */
-
+// simplified umem initialization of free list
 void *init_umem(void) {
     void *base = malloc(UMEM_SIZE);
     if (!base) {
@@ -140,21 +128,7 @@ void *init_umem(void) {
     return base;
 }
 
-/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- * Coalescing: Merge Adjacent Free Blocks
- *
- * After freeing, adjacent blocks in memory should be merged into larger
- * blocks to reduce fragmentation. We maintain the free list in address
- * order (see _ufree), so adjacency is detected by checking if one block's
- * end address equals the next block's start address.
- *
- * Why this matters for correctness: Without coalescing, the free list
- * could become fragmented into tiny unusable pieces. With concurrent
- * access, corruption here (following a bad pointer) was our most subtle
- * bug - if curr->next points to an allocated block, we read that block's
- * header->magic thinking it's a next pointer, causing infinite loops.
- */
-
+// unmodified
 static void coalesce(void) {
     node_t *curr = free_list;
     while (curr && curr->next) {
@@ -168,27 +142,7 @@ static void coalesce(void) {
     }
 }
 
-/* `````````````````````````````````````````````````````````````````````
- * First-Fit Allocator
- *
- * Searches the free list for the first block large enough to satisfy
- * the request. If the block is larger than needed, it's split: the
- * allocated portion becomes unavailable, and the remainder stays on
- * the free list.
- *
- * Why first-fit: Simple, fast for small allocations, and "good enough"
- * for teaching. Best-fit would reduce fragmentation but requires scanning
- * the entire list. Worst-fit is rarely useful.
- *
- * Critical detail: We save curr->next BEFORE overwriting the node with
- * a header. When we allocate from the head of the free list and create
- * a remainder, we need to know what used to be next.
- *
- * Lock contention source: Every allocation traverses this list under the
- * global semaphore. With N concurrent processes all building Huffman trees
- * (hundreds of allocations each), this becomes a severe bottleneck.
- */
-
+// replaced dereferenced instances of free_list_ptr with just free_list
 void *_umalloc(size_t size) {
     if (size == 0) return NULL;
 
@@ -231,21 +185,7 @@ void *_umalloc(size_t size) {
     return NULL;
 }
 
-/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- * Free: Return Block to Free List (in Address Order)
- *
- * Converts the allocated block back to a free node and inserts it into
- * the free list in address order. Address ordering is essential for
- * coalescing to work - we need adjacent blocks to be neighbors in the list.
- *
- * The magic number check catches double-frees and corruption. If someone
- * calls ufree() on an already-freed pointer, magic will likely be wrong
- * (it's been overwritten by node_t fields).
- *
- * After insertion, we coalesce to merge with adjacent blocks. This is
- * another source of lock contention - every free does a full list walk.
- */
-
+// simply replaced dereferences of free_list_ptr to free_list
 void _ufree(void *ptr) {
     if (!ptr) return;
 
@@ -273,24 +213,7 @@ void _ufree(void *ptr) {
     coalesce();
 }
 
-/* `````````````````````````````````````````````````````````````````````
- * Public Allocator Interface with Conditional Locking
- *
- * These wrappers add semaphore protection around the internal allocator
- * functions, but ONLY in multi-process mode. Single-process execution
- * avoids the overhead entirely.
- *
- * Lock contention analysis: In multi-process mode with 10 children,
- * each building a Huffman tree (~512 allocations + ~512 frees), we see
- * roughly 10,000+ lock acquisitions. Since only one process can hold
- * the lock at a time, most processes spend most of their time WAITING
- * rather than computing. This is why speedup is minimal (~1.2x) despite
- * 10-way parallelism.
- *
- * This inefficiency is intentional - students will optimize by implementing
- * per-thread memory pools or lock-free structures in later assignments.
- */
-
+// unmodified
 void *umalloc(size_t size) {
     if (use_multiprocess)
         pthread_mutex_lock(&mLock);
@@ -300,6 +223,7 @@ void *umalloc(size_t size) {
     return p;
 }
 
+// unmodified
 void ufree(void *ptr) {
     if (use_multiprocess)
         pthread_mutex_lock(&mLock);
@@ -445,6 +369,7 @@ void print_final(unsigned long final_hash) {
  * all processes share the same heap region.
  */
 
+// only modification is changing '-m' to be '-t'. I chose to still support '-m' as an alias for '-t'.
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <file> [-t]\n", argv[0]);
@@ -462,19 +387,7 @@ int main(int argc, char *argv[]) {
         return run_single(filename);
 }
 
-/* `````````````````````````````````````````````````````````````````````
- * Per-Block Processing Logic
- *
- * This is where the actual work happens: count symbol frequencies,
- * build the Huffman tree, hash it, and clean up. Each block is
- * independent - no communication between blocks needed.
- *
- * Allocation profile: For a typical 1KB block with ~100 unique symbols,
- * this calls umalloc() roughly 200-400 times (heap, array, tree nodes)
- * and ufree() a similar number. This heavy allocation pattern is why
- * lock contention dominates performance.
- */
-
+// unmodified
 unsigned long process_block(const unsigned char *buf, size_t len) {
     unsigned long freq[SYMBOLS] = {0};
     for (size_t i = 0; i < len; i++)
@@ -486,18 +399,7 @@ unsigned long process_block(const unsigned char *buf, size_t len) {
     return h;
 }
 
-/* `````````````````````````````````````````````````````````````````````
- * Single-Process Execution
- *
- * Straightforward sequential processing: read a block, process it,
- * accumulate the hash, repeat. No synchronization needed since there's
- * only one thread of execution.
- *
- * This serves as the performance baseline - any parallel version should
- * be faster, but due to lock contention, the multi-process version is
- * barely faster (or sometimes even slower due to fork() overhead).
- */
-
+// unmodified
 int run_single(const char *filename) {
     FILE *fp = fopen(filename, "rb");
     if (!fp) {
@@ -522,41 +424,8 @@ int run_single(const char *filename) {
     return 0;
 }
 
-/* `````````````````````````````````````````````````````````````````````
- * Multi-Process Execution: Three-Phase Parallel Strategy
- *
- * The key to achieving true parallelism: separate process creation from
- * result collection from cleanup. This allows all children to execute
- * simultaneously.
- *
- * Phase 1: Fork all children
- *   Parent reads each block, allocates a shared memory buffer via umalloc(),
- *   copies the data, then forks a child to process it. Critically, the
- *   parent does NOT wait - it immediately continues to the next block.
- *   This means all children are launched in rapid succession and execute
- *   in parallel.
- *
- *   Why allocate via umalloc() instead of just passing buf pointer?
- *   - buf is on parent's stack, which gets reused for each iteration
- *   - By the time child 0 runs, parent might have overwritten buf with block 5's data
- *   - Allocating in shared memory gives each child a stable copy
- *   - Also exercises the allocator, exposing lock contention
- *
- * Phase 2: Collect results in order
- *   Now we read from each pipe in sequence. If a child finished early,
- *   its result is already waiting in the pipe buffer. If it's still
- *   running, we block until it writes. This serializes COLLECTION but
- *   not EXECUTION - children are already running in parallel.
- *
- * Phase 3: Wait for stragglers
- *   Any children still running (unlikely if pipes are small) get reaped
- *   to avoid zombies. In practice, most children finish during Phase 2.
- *
- * Performance bottleneck: Despite parallel execution, speedup is minimal
- * because children spend most time waiting for the allocator lock. With
- * 10 children and ~500 allocations each, most processes are blocked most
- * of the time. This is why students will optimize the allocator in Part 2.
- */
+
+// Multi-threaded stuff
 
 // Thread argument structure
 typedef struct {
@@ -588,10 +457,6 @@ int run_threads(const char *filename) {
     unsigned long results[1024];
     pthread_t threads[1024];
     int num_blocks = 0;
-
-    /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     * Phase 1: Fork all children (parallel execution)
-     */
 
     while (!feof(fp)) {
         size_t n = fread(buf, 1, BLOCK_SIZE, fp);
@@ -630,22 +495,7 @@ int run_threads(const char *filename) {
 
     fclose(fp);
 
-    /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     * Phase 2: Collect results in order
-     *
-     * Read from pipes sequentially. This determines output order but
-     * doesn't affect parallelism - children are already running. If a
-     * child finished early, read() returns immediately. If still running,
-     * we block until it writes.
-     */
-
-    /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     * Phase 3: Wait for all children to complete
-     *
-     * Reap any remaining children to avoid zombies. Most should have
-     * finished during Phase 2 (when we read their results), but waitpid()
-     * ensures clean termination.
-     */
+    // Waiting for all the threads to finish with pthread_join and add to total
 
     for (int i = 0; i < num_blocks; i++) {
         pthread_join(threads[i], NULL);
