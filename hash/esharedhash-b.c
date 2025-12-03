@@ -96,7 +96,9 @@ typedef struct __node_t {
  * multiple children try to allocate/free simultaneously.
  */
 
-static node_t* free_list = NULL;
+#define NUM_CLASSES 8
+pthread_mutex_t locks[NUM_CLASSES];
+node_t* free_lists[NUM_CLASSES];
 
 #define ALIGNMENT 16
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~(ALIGNMENT - 1))
@@ -128,15 +130,37 @@ int use_multiprocess = 0;
  * region.
  */
 
+static int get_class(size_t size) {
+    if (size == 0) return 0;
+    int c = 0;
+    size_t threshold = 32;
+    while (size > threshold && c < NUM_CLASSES - 1) {
+        threshold *= 2;
+        c++;
+    }
+    return c;
+}
+
 void *init_umem(void) {
     void *base = malloc(UMEM_SIZE);
     if (!base) {
         perror("malloc");
         exit(1);
     }
-    free_list = (node_t *)base;
-    free_list->size = UMEM_SIZE - sizeof(node_t);
-    free_list->next = NULL;
+
+    for (int i = 0; i < NUM_CLASSES; i++) {
+        pthread_mutex_init(&locks[i], NULL);
+    }
+
+    size_t section_size = UMEM_SIZE / 8;
+    // Section the heap into 8 regions, each with one initial free block
+    for (int i = 0; i < NUM_CLASSES; i++) {
+        char *section_start = (char *)base + i * section_size;
+        free_lists[i] = (node_t *)section_start;
+        free_lists[i]->size = section_size - sizeof(node_t);
+        free_lists[i]->next = NULL;
+    }
+
     return base;
 }
 
@@ -155,8 +179,8 @@ void *init_umem(void) {
  * header->magic thinking it's a next pointer, causing infinite loops.
  */
 
-static void coalesce(void) {
-    node_t *curr = free_list;
+static void coalesce(int c) {
+    node_t *curr = free_lists[c];
     while (curr && curr->next) {
         char *end = (char *)curr + sizeof(node_t) + ALIGN(curr->size);
         if (end == (char *)curr->next) {
@@ -191,10 +215,13 @@ static void coalesce(void) {
 
 void *_umalloc(size_t size) {
     if (size == 0) return NULL;
-
     size = ALIGN(size);
+
+    int c = get_class(size);
+    pthread_mutex_lock(&locks[c]);
+
     node_t *prev = NULL;
-    node_t *curr = free_list;
+    node_t *curr = free_lists[c];
 
     while (curr) {
         if (curr->size >= (long)size) {
@@ -214,20 +241,22 @@ void *_umalloc(size_t size) {
                 if (prev)
                     prev->next = new_free;
                 else
-                    free_list = new_free;
+                    free_lists[c] = new_free;
             } else {
                 if (prev)
                     prev->next = next_free;
                 else
-                    free_list = next_free;
+                    free_lists[c] = next_free;
             }
 
+            pthread_mutex_unlock(&locks[c]);
             return user_ptr;
         }
         prev = curr;
         curr = curr->next;
     }
 
+    pthread_mutex_unlock(&locks[c]);
     return NULL;
 }
 
@@ -255,22 +284,27 @@ void _ufree(void *ptr) {
         abort();
     }
 
+    int class = get_class(hdr->size);  // Use original allocated size for class
+    pthread_mutex_lock(&locks[class]);
+
     node_t *node = (node_t *)hdr;
     node->size = ALIGN(hdr->size);
     node->next = NULL;
 
-    if (!free_list || node < free_list) {
-        node->next = free_list;
-        free_list = node;
+    // Insert in address order
+    if (!free_lists[class] || node < free_lists[class]) {
+        node->next = free_lists[class];
+        free_lists[class] = node;
     } else {
-        node_t *curr = free_list;
+        node_t *curr = free_lists[class];
         while (curr->next && curr->next < node)
             curr = curr->next;
         node->next = curr->next;
         curr->next = node;
     }
 
-    coalesce();
+    coalesce(class);
+    pthread_mutex_unlock(&locks[class]);
 }
 
 /* `````````````````````````````````````````````````````````````````````
@@ -292,20 +326,12 @@ void _ufree(void *ptr) {
  */
 
 void *umalloc(size_t size) {
-    if (use_multiprocess)
-        pthread_mutex_lock(&mLock);
-    void* p = _umalloc(size);
-    if (use_multiprocess)
-        pthread_mutex_unlock(&mLock);
-    return p;
+    return _umalloc(size);
 }
 
 void ufree(void *ptr) {
-    if (use_multiprocess)
-        pthread_mutex_lock(&mLock);
     _ufree(ptr);
-    if (use_multiprocess)
-        pthread_mutex_unlock(&mLock);
+
 }
 
 /* =======================================================================
