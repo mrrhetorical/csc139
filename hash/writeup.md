@@ -1,12 +1,19 @@
 # Performance report
 
 ## Strategy of Choice
-I chose to implement strategy A with thread pools because conceptually it made the most sense for me.
+I chose to implement strategy A with per-thread memory pools because conceptually it made the most sense for me.
 I'm currently attending CSC 163 which is all about concurrency in CUDA C on GPU architecture so thinking about splitting
 up memory in that way isn't too far off from what I had to do in that class for some of my assignments.
+Each thread in this case gets it's own region of memory that's in a dedicated region of the memory managed by a
+simple bump pointer.
+
+An important note is that I didn't use all 2mb of memory for the thread pools, but only 1mb.
+This is because I was using umalloc() and ufree() to allocate the thread arguments and buffer, and also allowed
+for some flexibility in how much memory each thread actually needed. 85-90% of the time the thread pool
+was sufficient or mostly sufficient, so In my mind this was a negligible performance hit for the ease of use. I experienced
 
 ## Timing data comparison
-![Timing data console output](img.png)
+![Timing data console output](timing_output.png)
 
 I tested extensively but the above image is a subset fairly representative of the data I saw
 when running the program multiple times.
@@ -35,4 +42,4 @@ was an interesting project to learn about, even though it was one of the most ch
 
 
 ## For fun: Valgrind results
-![img_1.png](img_1.png)
+![Valgrind output](valgrind_output.png)
