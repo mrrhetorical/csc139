@@ -97,7 +97,6 @@ int use_multiprocess = 0;
 
 __thread char* pool_start = NULL;
 __thread char* pool_current = NULL;
-__thread size_t pool_size = 0;
 
 #define NUM_THREADS 1024
 #define POOL_SIZE 1024
@@ -105,6 +104,12 @@ __thread size_t pool_size = 0;
 // thread heap where mostly unmanaged sections of memory live for each thread to do as they wish using pooling
 char* thread_heap;
 
+#ifdef DEBUG
+// These are used for me to debug how many lock aquisitions are actually getting bypassed
+int bypassAccesses = 0;
+int freeLockAccess = 0;
+int mallLockAccess = 0;
+#endif
 
 // modified a lot
 void *init_umem(void) {
@@ -218,15 +223,21 @@ void _ufree(void *ptr) {
 void* umalloc_fast(size_t size) {
     size = ALIGN(size);
     if (pool_current != NULL) {
-        if (pool_current + size <= pool_start + pool_size) {
+        if (pool_current + size <= pool_start + POOL_SIZE) {
             void* ptr = pool_current;
             pool_current += size;
-            return ptr;
+			#ifdef DEBUG
+			bypassAccesses++;
+			#endif
+			return ptr;
         }
     }
 
     pthread_mutex_lock(&mLock);
-    void* ptr = _umalloc(size);
+	#ifdef DEBUG
+	mallLockAccess++;
+    #endif
+	void* ptr = _umalloc(size);
     pthread_mutex_unlock(&mLock);
     return ptr;
 }
@@ -247,16 +258,28 @@ void ufree(void *ptr) {
     if (thread_heap != NULL) {
         char *c = (char *)ptr;
         if (c >= thread_heap && c < thread_heap + NUM_THREADS * POOL_SIZE) {
+			#ifdef DEBUG
+			bypassAccesses++;
+			#endif
             return;
         }
     }
 
 
-    if (use_multiprocess)
+
+    if (use_multiprocess) {
         pthread_mutex_lock(&mLock);
-    _ufree(ptr);
-    if (use_multiprocess)
+	}
+
+	#ifdef DEBUG
+	freeLockAccess++;
+	#endif
+	
+	_ufree(ptr);
+
+	if (use_multiprocess) {
         pthread_mutex_unlock(&mLock);
+	}
 }
 
 /* =======================================================================
@@ -462,7 +485,6 @@ void thread_pool_init(int tid) {
     size_t offset = tid * POOL_SIZE;
     pool_start = (char*) thread_heap + offset;
     pool_current = pool_start;
-    pool_size = POOL_SIZE;
 }
 
 // Worker thread function initializes the thread pool and process the block
@@ -543,5 +565,8 @@ int run_threads(const char *filename) {
     }
 
     print_final(final_hash);
-    return 0;
+#ifdef DEBUG
+	printf("Malloc lock accesses: %d\nFree lock accesses: %d\nTotal bypassed: %d\nPercent bypassed: %0.2f", mallLockAccess, freeLockAccess, bypassAccesses, (float) (bypassAccesses / (float) (bypassAccesses + mallLockAccess + freeLockAccess)));
+#endif
+	return 0;
 }
