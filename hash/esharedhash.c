@@ -97,6 +97,7 @@ typedef struct __node_t {
  */
 
 static node_t* free_list = NULL;
+__thread node_t* thread_free_list = NULL;
 
 #define ALIGNMENT 16
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~(ALIGNMENT - 1))
@@ -561,18 +562,18 @@ int run_single(const char *filename) {
 // Thread argument structure
 typedef struct {
     int block_id;
-    unsigned char *block_buf;
+    unsigned char block_buf[1024];
     size_t block_len;
     unsigned long *results;
 } thread_arg_t;
+
+thread_arg_t thread_arguments[1024];
 
 // Worker thread function
 void *worker_thread(void *arg) {
     thread_arg_t *targ = (thread_arg_t *)arg;
     unsigned long h = process_block(targ->block_buf, targ->block_len);
-    ufree(targ->block_buf);
     targ->results[targ->block_id] = h;
-    ufree(targ);
     return NULL;
 }
 
@@ -603,24 +604,15 @@ int run_threads(const char *filename) {
             return 1;
         }
 
-        unsigned char *block_buf = umalloc(n);
-        if (!block_buf) {
-            fprintf(stderr, "umalloc failed for block %d\n", num_blocks);
-            fclose(fp);
-            return 1;
-        }
-        memcpy(block_buf, buf, n);
-
-        thread_arg_t *args = umalloc(sizeof(thread_arg_t));
+        thread_arg_t *args = thread_arguments + num_blocks;
         args->block_id = num_blocks;
-        args->block_buf = block_buf;
+        memcpy(args->block_buf, buf, n);
         args->block_len = n;
         args->results = results;
         int r = pthread_create(&threads[num_blocks], NULL, worker_thread, args);
 
         if (r) {
             perror("pthread_create");
-            ufree(block_buf);
             fclose(fp);
             return 1;
         }
